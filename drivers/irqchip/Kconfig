@@ -171,7 +171,7 @@ config IMGPDC_IRQ
 	select IRQ_DOMAIN
 
 config MADERA_IRQ
-	tristate
+	tristate "MADERA IRQ chip"
 
 config IRQ_MIPS_CPU
 	bool
