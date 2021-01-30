@@ -76,12 +76,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
-	ifneq (,$(filter nairo%, $(TARGET_PRODUCT)))
-		INCS    +=  -include $(AUDIO_ROOT)/config/litonairo_asoc.h
-        endif
-	ifneq (,$(filter smith%, $(TARGET_PRODUCT)))
-		INCS    +=  -include $(AUDIO_ROOT)/config/litosmith.h
-	endif
 endif
 
 # As per target team, build is done as follows:
@@ -138,12 +132,7 @@ ifdef CONFIG_SND_SOC_KONA
 endif
 
 ifdef CONFIG_SND_SOC_LITO
-# Separate machine driver for Smith/Racer
-ifneq (,$(filter smith%, $(TARGET_PRODUCT)))
-	MACHINE_OBJS += kona-smith.o
-else
 	MACHINE_OBJS += kona.o
-endif
 endif
 
 # for BENGAL sound card driver

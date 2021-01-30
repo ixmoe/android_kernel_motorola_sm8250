@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 #include <linux/slab.h>
 #include <linux/debugfs.h>
@@ -10,7 +10,6 @@
 #include <linux/jiffies.h>
 #include <linux/sched.h>
 #include <linux/delay.h>
-#include <linux/version.h>
 #include <dsp/msm_audio_ion.h>
 #include <dsp/apr_audio-v2.h>
 #include <dsp/audio_cal_utils.h>
@@ -27,30 +26,8 @@
 #include <sound/msm-cirrus-playback.h>
 #endif
 
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-#define AFE_MODULE_ID_AWDSP_TX			(0x10013D00)
-#define AFE_MODULE_ID_AWDSP_RX			(0x10013D01)
-#define AFE_PARAM_ID_AWDSP_RX_SET_ENABLE	(0x10013D11)
-#define AFE_PARAM_ID_AWDSP_TX_SET_ENABLE	(0x10013D13)
-#define AFE_PARAM_ID_AWDSP_RX_PARAMS            (0x10013D12)
-#endif /* #ifdef CONFIG_SND_SOC_AWINIC_AW882XX */
 #define WAKELOCK_TIMEOUT	5000
 #define AFE_CLK_TOKEN	1024
-
-struct afe_avcs_payload_port_mapping {
-	u16 port_id;
-	struct avcs_load_unload_modules_payload *payload;
-} __packed;
-
-enum {
-	ENCODER_CASE,
-	DECODER_CASE,
-	/* Add new use case here */
-	MAX_ALLOWED_USE_CASES
-};
-
-static struct afe_avcs_payload_port_mapping *pm[MAX_ALLOWED_USE_CASES];
-
 enum {
 	AFE_COMMON_RX_CAL = 0,
 	AFE_COMMON_TX_CAL,
@@ -125,7 +102,7 @@ enum {
 };
 
 struct wlock {
-	struct wakeup_source *ws;
+	struct wakeup_source ws;
 };
 
 static struct wlock wl;
@@ -199,10 +176,6 @@ struct afe_ctl {
 	/* FTM spk params */
 	uint32_t initial_cal;
 	uint32_t v_vali_flag;
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-	struct rtac_cal_block_data aw_cal;
-	atomic_t aw_state;
-#endif /*CONFIG_SND_SOC_AWINIC_AW882XX*/
 };
 
 static atomic_t afe_ports_mad_type[SLIMBUS_PORT_LAST - SLIMBUS_0_RX];
@@ -231,124 +204,6 @@ bool afe_close_done[2] = {true, true};
 
 #define SIZEOF_CFG_CMD(y) \
 		(sizeof(struct apr_hdr) + sizeof(u16) + (sizeof(struct y)))
-
-static void q6afe_unload_avcs_modules(u16 port_id, int index)
-{
-	int ret = 0;
-
-	ret = q6core_avcs_load_unload_modules(pm[index]->payload,
-			AVCS_UNLOAD_MODULES);
-
-	if (ret < 0)
-		pr_err("%s: avcs module unload failed %d\n", __func__, ret);
-
-	kfree(pm[index]->payload);
-	pm[index]->payload = NULL;
-	kfree(pm[index]);
-	pm[index] = NULL;
-}
-
-static int q6afe_load_avcs_modules(int num_modules, u16 port_id,
-		 uint32_t use_case, u32 format_id)
-{
-	int i = 0;
-	int32_t ret = 0;
-	size_t payload_size = 0, port_struct_size = 0;
-	struct afe_avcs_payload_port_mapping payload_map;
-	struct avcs_load_unload_modules_sec_payload sec_payload;
-
-	if (num_modules <= 0) {
-		pr_err("%s: Invalid number of modules to load\n");
-		return -EINVAL;
-	}
-
-	for (i = 0; i < MAX_ALLOWED_USE_CASES; i++) {
-		if (pm[i] == NULL) {
-			port_struct_size = sizeof(payload_map);
-			pm[i] = kzalloc(port_struct_size, GFP_KERNEL);
-			if (!pm[i])
-				return -ENOMEM;
-
-			pm[i]->port_id = port_id;
-			payload_size = sizeof(uint32_t) + (sizeof(sec_payload)
-					* num_modules);
-			pm[i]->payload = kzalloc(payload_size, GFP_KERNEL);
-			if (!pm[i]->payload) {
-				kfree(pm[i]);
-				pm[i] = NULL;
-				return -ENOMEM;
-			}
-
-			/*
-			 * index 0 : packetizer/de-packetizer
-			 * index 1 : encoder/decoder
-			 */
-
-			pm[i]->payload->num_modules = num_modules;
-
-			/*
-			 * Remaining fields of payload
-			 * are initialized to zero
-			 */
-
-			if (use_case == ENCODER_CASE) {
-				pm[i]->payload->load_unload_info[0].module_type =
-						AMDB_MODULE_TYPE_PACKETIZER;
-				pm[i]->payload->load_unload_info[0].id1 =
-						AVS_MODULE_ID_PACKETIZER_COP;
-				pm[i]->payload->load_unload_info[1].module_type =
-						AMDB_MODULE_TYPE_ENCODER;
-				pm[i]->payload->load_unload_info[1].id1 =
-						format_id;
-			} else if (use_case == DECODER_CASE) {
-				pm[i]->payload->load_unload_info[0].module_type =
-						AMDB_MODULE_TYPE_DEPACKETIZER;
-				pm[i]->payload->load_unload_info[0].id1 =
-					AVS_MODULE_ID_DEPACKETIZER_COP_V1;
-
-				if (format_id == ENC_CODEC_TYPE_LDAC) {
-					pm[i]->payload->load_unload_info[0].id1 =
-						AVS_MODULE_ID_DEPACKETIZER_COP;
-					goto load_unload;
-				}
-
-				pm[i]->payload->load_unload_info[1].module_type =
-						AMDB_MODULE_TYPE_DECODER;
-				pm[i]->payload->load_unload_info[1].id1 =
-						format_id;
-
-			} else {
-				pr_err("%s:load usecase %d not supported\n",
-					 __func__, use_case);
-				ret = -EINVAL;
-				goto fail;
-			}
-
-load_unload:
-			ret = q6core_avcs_load_unload_modules(pm[i]->payload,
-						 AVCS_LOAD_MODULES);
-
-			if (ret < 0) {
-				pr_err("%s: load failed %d\n", __func__, ret);
-				goto fail;
-			}
-			return 0;
-		}
-
-	}
-
-	ret = -EINVAL;
-	if (i == MAX_ALLOWED_USE_CASES) {
-		pr_err("%s: Not enough ports available\n", __func__);
-		return ret;
-	}
-fail:
-	kfree(pm[i]->payload);
-	pm[i]->payload = NULL;
-	kfree(pm[i]);
-	pm[i] = NULL;
-	return ret;
-}
 
 static int afe_get_cal_hw_delay(int32_t path,
 				struct audio_cal_hw_delay_entry *entry);
@@ -802,19 +657,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 				payload, data->token);
 			return -EINVAL;
 		}
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-		if (atomic_read(&this_afe.aw_state) == 1) {
-			if (!payload[0]) {
-				atomic_set(&this_afe.state, 0);
-			} else {
-				pr_debug("%s: status: %d", __func__, payload[0]);
-				atomic_set(&this_afe.state, -1);
-			}
-			atomic_set(&this_afe.aw_state, 0);
-			wake_up(&this_afe.wait[data->token]);
-		return 0;
-		}
-#endif /*CONFIG_SND_SOC_AWINIC_AW882XX*/
+
 		if (rtac_make_afe_callback(data->payload,
 					   data->payload_size))
 			return 0;
@@ -2106,15 +1949,6 @@ static int afe_spk_prot_prepare(int src_port, int dst_port, int param_id,
 	case AFE_PARAM_ID_SP_V2_EX_VI_FTM_CFG:
 		param_info.module_id = AFE_MODULE_SPEAKER_PROTECTION_V2_EX_VI;
 		break;
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-	case AFE_PARAM_ID_AWDSP_RX_SET_ENABLE:
-	case AFE_PARAM_ID_AWDSP_RX_PARAMS:
-		param_info.module_id = AFE_MODULE_ID_AWDSP_RX;
-		break;
-	case AFE_PARAM_ID_AWDSP_TX_SET_ENABLE:
-		param_info.module_id = AFE_MODULE_ID_AWDSP_TX;
-		break;
-#endif	/*CONFIG_SND_SOC_AWINIC_AW882XX*/
 	default:
 		pr_err("%s: default case 0x%x\n", __func__, param_id);
 		goto fail_cmd;
@@ -3062,216 +2896,6 @@ done:
 	kfree(packed_param_data);
 	return ret;
 }
-
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-int aw_send_afe_rx_module_enable(uint32_t rx_port_id, void *buf, int cmd_size)
-{
-	union afe_spkr_prot_config config;
-
-	if (cmd_size > sizeof(config))
-		return -EINVAL;
-
-	memcpy(&config, buf, cmd_size);
-
-	if (afe_spk_prot_prepare(rx_port_id, 0,
-		AFE_PARAM_ID_AWDSP_RX_SET_ENABLE, &config)) {
-		pr_err("%s: set bypass failed \n", __func__);
-		return -EINVAL;
-	}
-	return 0;
-}
-EXPORT_SYMBOL(aw_send_afe_rx_module_enable);
-int aw_send_afe_tx_module_enable(uint32_t tx_port_id, void *buf, int cmd_size)
-{
-	union afe_spkr_prot_config config;
-
-	if (cmd_size > sizeof(config))
-		return -EINVAL;
-
-	memcpy(&config, buf, cmd_size);
-
-	if (afe_spk_prot_prepare(tx_port_id, 0,
-		AFE_PARAM_ID_AWDSP_TX_SET_ENABLE, &config)) {
-		pr_err("%s: set bypass failed \n", __func__);
-		return -EINVAL;
-	}
-	return 0;
-}
-EXPORT_SYMBOL(aw_send_afe_tx_module_enable);
-
-int aw_send_afe_cal_apr(uint32_t rx_port_id, uint32_t tx_port_id,
-						uint32_t param_id, void *buf, int cmd_size, bool write)
-{
-	int32_t result = 0;
-	uint32_t port_id = rx_port_id;
-	int32_t  module_id = AFE_MODULE_ID_AWDSP_RX;
-	uint32_t port_index = 0;
-	uint32_t payload_size = 0;
-	size_t len;
-	struct rtac_cal_block_data *aw_cal = &(this_afe.aw_cal);
-	struct mem_mapping_hdr mem_hdr;
-	struct param_hdr_v3  param_hdr;
-
-	pr_debug("%s: enter\n", __func__);
-
-	if (param_id == AFE_PARAM_ID_AWDSP_TX_SET_ENABLE) {
-		port_id = tx_port_id;
-		module_id = AFE_MODULE_ID_AWDSP_TX;
-	}
-
-	if (aw_cal->map_data.dma_buf == 0) {
-		/*Minimal chunk size is 4K*/
-		aw_cal->map_data.map_size = SZ_4K;
-		result = msm_audio_ion_alloc(&(aw_cal->map_data.dma_buf),
-				aw_cal->map_data.map_size,
-				&(aw_cal->cal_data.paddr),&len,
-				&(aw_cal->cal_data.kvaddr));
-		if (result < 0) {
-			pr_err("%s: allocate buffer failed! ret = %d\n",
-				__func__, result);
-			goto err;
-		}
-	}
-
-	if (aw_cal->map_data.map_handle == 0) {
-		result = afe_map_rtac_block(aw_cal);
-		if (result < 0) {
-			pr_err("%s: map buffer failed! ret = %d\n",
-				__func__, result);
-			goto err;
-		}
-	}
-
-	port_index = q6audio_get_port_index(port_id);
-	if (port_index >= AFE_MAX_PORTS) {
-		pr_err("%s: Invalid AFE port = 0x%x\n", __func__, port_id);
-		goto err;
-	}
-
-	if (cmd_size > (SZ_4K - sizeof(struct param_hdr_v3))) {
-		pr_err("%s: Invalid payload size = %d\n", __func__, cmd_size);
-		result = -EINVAL;
-		goto err;
-	}
-
-	/* Pack message header with data */
-	param_hdr.module_id = module_id;
-	param_hdr.instance_id = INSTANCE_ID_0;
-	param_hdr.param_size = cmd_size;
-
-	if (write) {
-		param_hdr.param_id = param_id;
-		q6common_pack_pp_params(aw_cal->cal_data.kvaddr,
-							&param_hdr,
-							buf,
-							&payload_size);
-		aw_cal->cal_data.size = payload_size;
-	} else {
-		param_hdr.param_id = param_id;
-		aw_cal->cal_data.size = cmd_size + sizeof(struct param_hdr_v3);
-	}
-
-	/*Send/Get package to/from ADSP*/
-	mem_hdr.data_payload_addr_lsw =
-		lower_32_bits(aw_cal->cal_data.paddr);
-	mem_hdr.data_payload_addr_msw =
-		msm_audio_populate_upper_32_bits(aw_cal->cal_data.paddr);
-	mem_hdr.mem_map_handle =
-		aw_cal->map_data.map_handle;
-
-	pr_debug("%s: Sending aw_cal port = 0x%x, cal size = %zd, cal addr = 0x%pK\n",
-		__func__, port_id, aw_cal->cal_data.size, &aw_cal->cal_data.paddr);
-
-	result = afe_q6_interface_prepare();
-	if (result != 0) {
-		pr_err("%s: Q6 interface prepare failed %d\n", __func__, result);
-		goto err;
-	}
-
-	if (write) {
-		if (q6common_is_instance_id_supported())
-			result = q6afe_set_params_v3(port_id, port_index, &mem_hdr, NULL, payload_size);
-		else
-			result = q6afe_set_params_v2(port_id, port_index, &mem_hdr, NULL, payload_size);
-	} else {
-		int8_t *resp = (int8_t *)aw_cal->cal_data.kvaddr;
-
-		atomic_set(&this_afe.aw_state, 1);
-		if (q6common_is_instance_id_supported()) {
-			result = q6afe_get_params_v3(port_id, port_index, &mem_hdr, &param_hdr);
-			resp += sizeof(struct param_hdr_v3);
-		} else {
-			result = q6afe_get_params_v2(port_id, port_index, &mem_hdr, &param_hdr);
-			resp += sizeof(struct param_hdr_v1);
-		}
-
-		if (result) {
-			pr_err("%s: get response from port 0x%x failed %d\n",
-				__func__, port_id, result);
-			goto err;
-		}
-		else {
-			/*Copy response data to command buffer*/
-			memcpy(buf,  resp,  cmd_size);
-		}
-	}
-err:
-	return result;
-}
-EXPORT_SYMBOL(aw_send_afe_cal_apr);
-
-void aw_cal_unmap_memory(void)
-{
-	int result = 0;
-
-	if (this_afe.aw_cal.map_data.map_handle) {
-		result = afe_unmap_rtac_block(&this_afe.aw_cal.map_data.map_handle);
-
-		/*Force to remap after unmap failed*/
-		if (result)
-			this_afe.aw_cal.map_data.map_handle = 0;
-	}
-}
-EXPORT_SYMBOL(aw_cal_unmap_memory);
-
-int aw_send_rx_module_enable(uint32_t rx_port_id, void *buf, int cmd_size)
-{
-	union afe_spkr_prot_config config;
-
-	if (cmd_size > sizeof(config))
-		return -EINVAL;
-
-	memcpy(&config, buf, cmd_size);
-	if (afe_spk_prot_prepare(rx_port_id, 0,
-			AFE_PARAM_ID_AWDSP_RX_SET_ENABLE,
-			&config)) {
-		pr_err("%s: AW set rx bypass failed\n",
-				   __func__);
-	}
-	return 0;
-}
-EXPORT_SYMBOL(aw_send_rx_module_enable);
-
-int aw_send_tx_module_enable(uint32_t tx_port_id, void *buf, int cmd_size)
-{
-	union afe_spkr_prot_config config;
-
-	if (cmd_size > sizeof(config))
-		return -EINVAL;
-
-	memcpy(&config, buf, cmd_size);
-	if (afe_spk_prot_prepare(tx_port_id, 0,
-			AFE_PARAM_ID_AWDSP_TX_SET_ENABLE,
-			&config)) {
-		pr_err("%s: AW set tx module enable failed\n",
-				   __func__);
-	}
-	return 0;
-}
-EXPORT_SYMBOL(aw_send_tx_module_enable);
-
-#endif
-
 
 static int afe_init_cdc_reg_config(void)
 {
@@ -5215,21 +4839,8 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	if ((codec_format != ASM_MEDIA_FMT_NONE) &&
 	    (cfg_type == AFE_PARAM_ID_SLIMBUS_CONFIG)) {
 		if (enc_cfg != NULL) {
-			pr_debug("%s: Found AFE encoder support  for SLIMBUS format = %d\n",
+			pr_debug("%s: Found AFE encoder support for SLIMBUS format = %d\n",
 						__func__, codec_format);
-
-			if ((q6core_get_avcs_api_version_per_service(
-				APRV2_IDS_SERVICE_ID_ADSP_CORE_V) >=
-						AVCS_API_VERSION_V5)) {
-				ret = q6afe_load_avcs_modules(2, port_id,
-					ENCODER_CASE, codec_format);
-				if (ret < 0) {
-					pr_err("%s:encoder load for port 0x%x failed %d\n",
-						__func__, port_id, ret);
-					goto fail_cmd;
-				}
-			}
-
 			ret = q6afe_send_enc_config(port_id, enc_cfg,
 						    codec_format, *afe_config,
 						    afe_in_channels,
@@ -5243,24 +4854,7 @@ static int __afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		}
 		if (dec_cfg != NULL) {
 			pr_debug("%s: Found AFE decoder support for SLIMBUS format = %d\n",
-				__func__, codec_format);
-
-			if ((q6core_get_avcs_api_version_per_service(
-				APRV2_IDS_SERVICE_ID_ADSP_CORE_V) >=
-				AVCS_API_VERSION_V5)) {
-				/* LDAC doesn't require decoder */
-				if (codec_format == ENC_CODEC_TYPE_LDAC)
-					ret = q6afe_load_avcs_modules(1, port_id,
-						DECODER_CASE, codec_format);
-				else
-					ret = q6afe_load_avcs_modules(2, port_id,
-						DECODER_CASE, codec_format);
-				if (ret < 0) {
-					pr_err("%s:decoder load for port 0x%x failed %d\n",
-						__func__, port_id, ret);
-					goto fail_cmd;
-				}
-			}
+				  __func__, codec_format);
 			ret = q6afe_send_dec_config(port_id, *afe_config,
 						    dec_cfg, codec_format,
 						    afe_in_channels,
@@ -7447,7 +7041,7 @@ static int afe_sidetone_iir(u16 tx_port_id)
 	 * Set IIR enable params
 	 */
 	param_hdr.module_id = mid;
-	param_hdr.instance_id = INSTANCE_ID_0;
+	param_hdr.param_id = INSTANCE_ID_0;
 	param_hdr.param_id = AFE_PARAM_ID_ENABLE;
 	param_hdr.param_size = sizeof(enable);
 	enable.enable = iir_enable;
@@ -8007,7 +7601,6 @@ int afe_close(int port_id)
 	struct afe_port_cmd_device_stop stop;
 	enum afe_mad_type mad_type;
 	int ret = 0;
-	u16 i;
 	int index = 0;
 	uint16_t port_index;
 
@@ -8124,15 +7717,6 @@ int afe_close(int port_id)
 		pr_err("%s: AFE close failed %d\n", __func__, ret);
 
 fail_cmd:
-	if ((q6core_get_avcs_api_version_per_service(
-		APRV2_IDS_SERVICE_ID_ADSP_CORE_V) >= AVCS_API_VERSION_V5)) {
-		for (i = 0; i < MAX_ALLOWED_USE_CASES; i++) {
-			if (pm[i] && pm[i]->port_id == port_id) {
-				q6afe_unload_avcs_modules(port_id, i);
-				break;
-			}
-		}
-	}
 	mutex_unlock(&this_afe.afe_cmd_lock);
 	return ret;
 }
@@ -9199,7 +8783,7 @@ static int afe_set_cal_fb_spkr_prot(int32_t cal_type, size_t data_size,
 		goto done;
 
 	if (cal_data->cal_info.mode == MSM_SPKR_PROT_CALIBRATION_IN_PROGRESS)
-		__pm_wakeup_event(wl.ws, jiffies_to_msecs(WAKELOCK_TIMEOUT));
+		__pm_wakeup_event(&wl.ws, jiffies_to_msecs(WAKELOCK_TIMEOUT));
 	mutex_lock(&this_afe.cal_data[AFE_FB_SPKR_PROT_CAL]->lock);
 	memcpy(&this_afe.prot_cfg, &cal_data->cal_info,
 		sizeof(this_afe.prot_cfg));
@@ -9405,7 +8989,7 @@ static int afe_get_cal_fb_spkr_prot(int32_t cal_type, size_t data_size,
 	}
 	this_afe.initial_cal = 0;
 	mutex_unlock(&this_afe.cal_data[AFE_FB_SPKR_PROT_CAL]->lock);
-	__pm_relax(wl.ws);
+	__pm_relax(&wl.ws);
 done:
 	return ret;
 }
@@ -9703,6 +9287,7 @@ int __init afe_init(void)
 	init_waitqueue_head(&this_afe.wait_wakeup);
 	init_waitqueue_head(&this_afe.lpass_core_hw_wait);
 	init_waitqueue_head(&this_afe.clk_wait);
+	wakeup_source_init(&wl.ws, "spkr-prot");
 	ret = afe_init_cal_data();
 	if (ret)
 		pr_err("%s: could not init cal data! %d\n", __func__, ret);
@@ -9712,12 +9297,8 @@ int __init afe_init(void)
 	this_afe.uevent_data = kzalloc(sizeof(*(this_afe.uevent_data)), GFP_KERNEL);
 	if (!this_afe.uevent_data)
 		return -ENOMEM;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 110))
-	wl.ws = wakeup_source_register(NULL, "spkr-prot");
-#else
-	wl.ws = wakeup_source_register("spkr-prot");
-#endif
-/*
+
+	/*
 	 * Set release function to cleanup memory related to kobject
 	 * before initializing the kobject.
 	 */
@@ -9745,16 +9326,13 @@ void afe_exit(void)
 
 	q6core_destroy_uevent_data(this_afe.uevent_data);
 
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-	aw_cal_unmap_memory();
-#endif /*CONFIG_SND_SOC_AWINIC_AW882XX*/
 	afe_delete_cal_data();
 
 	config_debug_fs_exit();
 	mutex_destroy(&this_afe.afe_cmd_lock);
 	mutex_destroy(&this_afe.afe_apr_lock);
 	mutex_destroy(&this_afe.afe_clk_lock);
-	wakeup_source_unregister(wl.ws);
+	wakeup_source_trash(&wl.ws);
 }
 
 /*

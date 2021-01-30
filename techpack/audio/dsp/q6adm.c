@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -2138,8 +2138,7 @@ static struct cal_block_data *adm_find_cal_by_path(int cal_index, int path)
 
 		if (cal_index == ADM_AUDPROC_CAL ||
 		    cal_index == ADM_LSM_AUDPROC_CAL ||
-		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL ||
-		    cal_index == ADM_AUDPROC_PERSISTENT_CAL) {
+		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL) {
 			audproc_cal_info = cal_block->cal_info;
 			if ((audproc_cal_info->path == path) &&
 			    (cal_block->cal_data.size > 0))
@@ -2177,8 +2176,7 @@ static struct cal_block_data *adm_find_cal_by_app_type(int cal_index, int path,
 
 		if (cal_index == ADM_AUDPROC_CAL ||
 		    cal_index == ADM_LSM_AUDPROC_CAL ||
-		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL ||
-		    cal_index == ADM_AUDPROC_PERSISTENT_CAL) {
+		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL) {
 			audproc_cal_info = cal_block->cal_info;
 			if ((audproc_cal_info->path == path) &&
 			    (audproc_cal_info->app_type == app_type) &&
@@ -2219,8 +2217,7 @@ static struct cal_block_data *adm_find_cal(int cal_index, int path,
 
 		if (cal_index == ADM_AUDPROC_CAL ||
 		    cal_index == ADM_LSM_AUDPROC_CAL ||
-		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL||
-		    cal_index == ADM_AUDPROC_PERSISTENT_CAL) {
+		    cal_index == ADM_LSM_AUDPROC_PERSISTENT_CAL) {
 			audproc_cal_info = cal_block->cal_info;
 			if ((audproc_cal_info->path == path) &&
 			    (audproc_cal_info->app_type == app_type) &&
@@ -2311,9 +2308,6 @@ static void send_adm_cal(int port_id, int copp_idx, int path, int perf_mode,
 	if (passthr_mode != LISTEN) {
 		send_adm_cal_type(ADM_AUDPROC_CAL, path, port_id, copp_idx,
 				perf_mode, app_type, acdb_id, sample_rate);
-		send_adm_cal_type(ADM_AUDPROC_PERSISTENT_CAL, path,
-				  port_id, copp_idx, perf_mode, app_type,
-				  acdb_id, sample_rate);
 	} else {
 		send_adm_cal_type(ADM_LSM_AUDPROC_CAL, path, port_id, copp_idx,
 				  perf_mode, app_type, acdb_id, sample_rate);
@@ -3071,8 +3065,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 				this_adm.ffecns_port_id);
 	}
 
-	if (topology == VPM_TX_VOICE_SMECNS_V2_COPP_TOPOLOGY ||
-	    topology == VPM_TX_VOICE_FLUENCE_SM_COPP_TOPOLOGY)
+	if (topology == VPM_TX_VOICE_SMECNS_V2_COPP_TOPOLOGY)
 		channel_mode = 1;
 
 	/*
@@ -4130,9 +4123,6 @@ static int get_cal_type_index(int32_t cal_type)
 	case ADM_LSM_AUDPROC_PERSISTENT_CAL_TYPE:
 		ret = ADM_LSM_AUDPROC_PERSISTENT_CAL;
 		break;
-	case ADM_AUDPROC_PERSISTENT_CAL_TYPE:
-		ret = ADM_AUDPROC_PERSISTENT_CAL;
-		break;
 	default:
 		pr_err("%s: invalid cal type %d!\n", __func__, cal_type);
 	}
@@ -4356,12 +4346,6 @@ static int adm_init_cal_data(void)
 		cal_utils_match_buf_num} },
 
 		{{ADM_LSM_AUDPROC_PERSISTENT_CAL_TYPE,
-		 {adm_alloc_cal, adm_dealloc_cal, NULL,
-		  adm_set_cal, NULL, NULL} },
-		 {adm_map_cal_data, adm_unmap_cal_data,
-		  cal_utils_match_buf_num} },
-
-		{{ADM_AUDPROC_PERSISTENT_CAL_TYPE,
 		 {adm_alloc_cal, adm_dealloc_cal, NULL,
 		  adm_set_cal, NULL, NULL} },
 		 {adm_map_cal_data, adm_unmap_cal_data,
@@ -4626,49 +4610,6 @@ int adm_set_ffecns_freeze_event(bool ffecns_freeze_event)
 	return rc;
 }
 EXPORT_SYMBOL(adm_set_ffecns_freeze_event);
-#ifdef CONFIG_SND_SOC_AWINIC_AW882XX
-int aw_adm_param_enable(int port_id, int module_id,  int param_id, int enable)
-{
-        int copp_idx = 0;
-        uint32_t enable_param;
-        struct param_hdr_v3 param_hdr;
-        int rc = 0;
-
-        pr_debug("%s port_id %d, module_id 0x%x, enable %d\n",
-                __func__, port_id, module_id, enable);
-
-        copp_idx = adm_get_default_copp_idx(port_id);
-
-        if (copp_idx < 0 || copp_idx >= MAX_COPPS_PER_PORT) {
-                pr_err("%s: Invalid copp_num: %d\n", __func__, copp_idx);
-                return -EINVAL;
-        }
-
-        if (enable < 0 || enable > 1) {
-                pr_err("%s: Invalid value for enable %d\n", __func__, enable);
-                return -EINVAL;
-        }
-
-        pr_debug("%s port_id %d, module_id 0x%x, copp_idx 0x%x, enable %d\n",
-                __func__, port_id, module_id, copp_idx, enable);
-
-        memset(&param_hdr, 0, sizeof(param_hdr));
-        param_hdr.module_id = module_id;
-        param_hdr.instance_id = INSTANCE_ID_0;
-        param_hdr.param_id = param_id;
-        param_hdr.param_size = sizeof(enable_param);
-        enable_param = enable;
-
-        rc = adm_pack_and_set_one_pp_param(port_id, copp_idx, param_hdr,
-                                                (uint8_t *) &enable_param);
-
-        if (rc)
-                pr_err("%s: Failed to set enable of module(%d) instance(%d) to %d, err %d\n",
-                                __func__, module_id, INSTANCE_ID_0, enable, rc);
-        return rc;
-}
-EXPORT_SYMBOL(aw_adm_param_enable);
-#endif
 
 /**
  * adm_param_enable -
@@ -4970,15 +4911,7 @@ int adm_store_cal_data(int port_id, int copp_idx, int path, int perf_mode,
 			rc = -ENOMEM;
 			goto unlock;
 		}
-	} else if (cal_index == ADM_AUDPROC_PERSISTENT_CAL) {
-		if (cal_block->cal_data.size > AUD_PROC_PERSIST_BLOCK_SIZE) {
-			pr_err("%s:persist invalid size exp/actual[%zd, %d]\n",
-				__func__, cal_block->cal_data.size, *size);
-			rc = -ENOMEM;
-			goto unlock;
-		}
-	}
-	else if (cal_index == ADM_AUDVOL_CAL) {
+	} else if (cal_index == ADM_AUDVOL_CAL) {
 		if (cal_block->cal_data.size > AUD_VOL_BLOCK_SIZE) {
 			pr_err("%s:aud_vol:invalid size exp/actual[%zd, %d]\n",
 				__func__, cal_block->cal_data.size, *size);

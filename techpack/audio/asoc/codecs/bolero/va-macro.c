@@ -16,7 +16,6 @@
 #include <asoc/msm-cdc-pinctrl.h>
 #include <soc/swr-common.h>
 #include <soc/swr-wcd.h>
-#include <dsp/digital-cdc-rsc-mgr.h>
 #include "bolero-cdc.h"
 #include "bolero-cdc-registers.h"
 #include "bolero-clk-rsc.h"
@@ -130,7 +129,6 @@ struct va_macro_swr_ctrl_platform_data {
 							  void *data),
 			  void *swrm_handle,
 			  int action);
-	int (*pinctrl_setup)(void *handle, bool enable);
 };
 
 struct va_macro_priv {
@@ -204,11 +202,6 @@ static int va_macro_clk_div_get(struct snd_soc_component *component)
 	if (!va_macro_get_data(component, &va_dev, &va_priv, __func__))
 		return -EINVAL;
 
-	if ((va_priv->version >= BOLERO_VERSION_2_0)
-		&& !va_priv->lpi_enable
-		&& (va_priv->dmic_clk_div == VA_MACRO_CLK_DIV_16))
-		return VA_MACRO_CLK_DIV_8;
-
 	return va_priv->dmic_clk_div;
 }
 
@@ -228,19 +221,19 @@ static int va_macro_mclk_enable(struct va_macro_priv *va_priv,
 
 	mutex_lock(&va_priv->mclk_lock);
 	if (mclk_enable) {
-		ret = bolero_clk_rsc_request_clock(va_priv->dev,
-						   va_priv->default_clk_id,
-						   va_priv->clk_id,
-						   true);
-		if (ret < 0) {
-			dev_err(va_priv->dev,
-				"%s: va request clock en failed\n",
-				__func__);
-			goto exit;
-		}
-		bolero_clk_rsc_fs_gen_request(va_priv->dev,
-					      true);
 		if (va_priv->va_mclk_users == 0) {
+			ret = bolero_clk_rsc_request_clock(va_priv->dev,
+							   va_priv->default_clk_id,
+							   va_priv->clk_id,
+							   true);
+			if (ret < 0) {
+				dev_err(va_priv->dev,
+					"%s: va request clock en failed\n",
+					__func__);
+				goto exit;
+			}
+			bolero_clk_rsc_fs_gen_request(va_priv->dev,
+						  true);
 			regcache_mark_dirty(regmap);
 			regcache_sync_region(regmap,
 					VA_START_OFFSET,
@@ -255,12 +248,14 @@ static int va_macro_mclk_enable(struct va_macro_priv *va_priv,
 			goto exit;
 		}
 		va_priv->va_mclk_users--;
-		bolero_clk_rsc_fs_gen_request(va_priv->dev,
-					  false);
-		bolero_clk_rsc_request_clock(va_priv->dev,
-					va_priv->default_clk_id,
-					va_priv->clk_id,
-					false);
+		if (va_priv->va_mclk_users == 0) {
+			bolero_clk_rsc_fs_gen_request(va_priv->dev,
+						  false);
+			bolero_clk_rsc_request_clock(va_priv->dev,
+						va_priv->default_clk_id,
+						va_priv->clk_id,
+						false);
+		}
 	}
 exit:
 	mutex_unlock(&va_priv->mclk_lock);
@@ -299,7 +294,8 @@ static int va_macro_event_handler(struct snd_soc_component *component,
 				"%s: va_mclk_users is non-zero still, audio SSR fail!!\n",
 				__func__);
 		break;
-	case BOLERO_MACRO_EVT_PRE_SSR_UP:
+	case BOLERO_MACRO_EVT_SSR_UP:
+		trace_printk("%s, enter SSR up\n", __func__);
 		/* enable&disable VA_CORE_CLK to reset GFMUX reg */
 		ret = bolero_clk_rsc_request_clock(va_priv->dev,
 						va_priv->default_clk_id,
@@ -312,9 +308,6 @@ static int va_macro_event_handler(struct snd_soc_component *component,
 			bolero_clk_rsc_request_clock(va_priv->dev,
 						va_priv->default_clk_id,
 						VA_CORE_CLK, false);
-		break;
-	case BOLERO_MACRO_EVT_SSR_UP:
-		trace_printk("%s, enter SSR up\n", __func__);
 		/* reset swr after ssr/pdr */
 		va_priv->reset_swr = true;
 		if (va_priv->swr_ctrl_data)
@@ -327,6 +320,9 @@ static int va_macro_event_handler(struct snd_soc_component *component,
 		break;
 	case BOLERO_MACRO_EVT_SSR_DOWN:
 		if (va_priv->swr_ctrl_data) {
+			swrm_wcd_notify(
+				va_priv->swr_ctrl_data[0].va_swr_pdev,
+				SWR_DEVICE_DOWN, NULL);
 			swrm_wcd_notify(
 				va_priv->swr_ctrl_data[0].va_swr_pdev,
 				SWR_DEVICE_SSR_DOWN, NULL);
@@ -448,8 +444,7 @@ static int va_macro_swr_pwr_event(struct snd_soc_dapm_widget *w,
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		if (va_priv->lpass_audio_hw_vote) {
-			ret = digital_cdc_rsc_mgr_hw_vote_enable(
-					va_priv->lpass_audio_hw_vote);
+			ret = clk_prepare_enable(va_priv->lpass_audio_hw_vote);
 			if (ret)
 				dev_err(va_dev,
 					"%s: lpass audio hw enable failed\n",
@@ -460,59 +455,19 @@ static int va_macro_swr_pwr_event(struct snd_soc_dapm_widget *w,
 				dev_dbg(va_dev, "%s: clock switch failed\n",
 					__func__);
 		if (va_priv->lpi_enable) {
-			bolero_register_event_listener(component, true, false);
+			bolero_register_event_listener(component, true);
 			va_priv->register_event_listener = true;
 		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		if (va_priv->register_event_listener) {
 			va_priv->register_event_listener = false;
-			bolero_register_event_listener(component, false, false);
+			bolero_register_event_listener(component, false);
 		}
 		if (bolero_tx_clk_switch(component, CLK_SRC_TX_RCG))
 			dev_dbg(va_dev, "%s: clock switch failed\n",__func__);
 		if (va_priv->lpass_audio_hw_vote)
-			digital_cdc_rsc_mgr_hw_vote_disable(
-				va_priv->lpass_audio_hw_vote);
-		break;
-	default:
-		dev_err(va_priv->dev,
-			"%s: invalid DAPM event %d\n", __func__, event);
-		ret = -EINVAL;
-	}
-	return ret;
-}
-
-static int va_macro_swr_intr_event(struct snd_soc_dapm_widget *w,
-			       struct snd_kcontrol *kcontrol, int event)
-{
-	struct snd_soc_component *component =
-			snd_soc_dapm_to_component(w->dapm);
-	int ret = 0;
-	struct device *va_dev = NULL;
-	struct va_macro_priv *va_priv = NULL;
-
-	if (!va_macro_get_data(component, &va_dev, &va_priv, __func__))
-		return -EINVAL;
-
-	dev_dbg(va_dev, "%s: event = %d, lpi_enable = %d\n",
-		__func__, event, va_priv->lpi_enable);
-
-	if (!va_priv->lpi_enable)
-		return ret;
-
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
-		if (va_priv->lpi_enable) {
-			bolero_register_event_listener(component, true, true);
-			va_priv->register_event_listener = true;
-		}
-		break;
-	case SND_SOC_DAPM_POST_PMD:
-		if (va_priv->register_event_listener) {
-			va_priv->register_event_listener = false;
-			bolero_register_event_listener(component, false, true);
-		}
+			clk_disable_unprepare(va_priv->lpass_audio_hw_vote);
 		break;
 	default:
 		dev_err(va_priv->dev,
@@ -772,20 +727,14 @@ static int va_macro_swrm_clock(void *handle, bool enable)
 		if (va_priv->va_swr_clk_cnt && !va_priv->tx_swr_clk_cnt) {
 			ret = va_macro_tx_va_mclk_enable(va_priv, regmap,
 							VA_MCLK, enable);
-			if (ret) {
-				pm_runtime_mark_last_busy(va_priv->dev);
-				pm_runtime_put_autosuspend(va_priv->dev);
+			if (ret)
 				goto done;
-			}
 			va_priv->va_clk_status++;
 		} else {
 			ret = va_macro_tx_va_mclk_enable(va_priv, regmap,
 							TX_MCLK, enable);
-			if (ret) {
-				pm_runtime_mark_last_busy(va_priv->dev);
-				pm_runtime_put_autosuspend(va_priv->dev);
+			if (ret)
 				goto done;
-			}
 			va_priv->tx_clk_status++;
 		}
 		pm_runtime_mark_last_busy(va_priv->dev);
@@ -832,31 +781,23 @@ done:
 	return ret;
 }
 
-static bool is_amic_enabled(struct snd_soc_component *component, int decimator)
+static int is_amic_enabled(struct snd_soc_component *component, int decimator)
 {
 	u16 adc_mux_reg = 0, adc_reg = 0;
 	u16 adc_n = BOLERO_ADC_MAX;
-	bool ret = false;
-	struct device *va_dev = NULL;
-	struct va_macro_priv *va_priv = NULL;
-
-	if (!va_macro_get_data(component, &va_dev, &va_priv, __func__))
-		return ret;
 
 	adc_mux_reg = BOLERO_CDC_VA_INP_MUX_ADC_MUX0_CFG1 +
 			VA_MACRO_ADC_MUX_CFG_OFFSET * decimator;
 	if (snd_soc_component_read32(component, adc_mux_reg) & SWR_MIC) {
-		if (va_priv->version == BOLERO_VERSION_2_1)
-			return true;
 		adc_reg = BOLERO_CDC_VA_INP_MUX_ADC_MUX0_CFG0 +
 			VA_MACRO_ADC_MUX_CFG_OFFSET * decimator;
 		adc_n = snd_soc_component_read32(component, adc_reg) &
 				VA_MACRO_SWR_MIC_MUX_SEL_MASK;
-		if (adc_n < BOLERO_ADC_MAX)
-			return true;
+		if (adc_n >= BOLERO_ADC_MAX)
+			adc_n = BOLERO_ADC_MAX;
 	}
 
-	return ret;
+	return adc_n;
 }
 
 static void va_macro_tx_hpf_corner_freq_callback(struct work_struct *work)
@@ -867,7 +808,7 @@ static void va_macro_tx_hpf_corner_freq_callback(struct work_struct *work)
 	struct snd_soc_component *component;
 	u16 dec_cfg_reg, hpf_gate_reg;
 	u8 hpf_cut_off_freq;
-	u16 adc_reg = 0, adc_n = 0;
+	u16 adc_n = 0;
 
 	hpf_delayed_work = to_delayed_work(work);
 	hpf_work = container_of(hpf_delayed_work, struct hpf_work, dwork);
@@ -883,11 +824,8 @@ static void va_macro_tx_hpf_corner_freq_callback(struct work_struct *work)
 	dev_dbg(va_priv->dev, "%s: decimator %u hpf_cut_of_freq 0x%x\n",
 		__func__, hpf_work->decimator, hpf_cut_off_freq);
 
-	if (is_amic_enabled(component, hpf_work->decimator)) {
-		adc_reg = BOLERO_CDC_VA_INP_MUX_ADC_MUX0_CFG0 +
-			VA_MACRO_ADC_MUX_CFG_OFFSET * hpf_work->decimator;
-		adc_n = snd_soc_component_read32(component, adc_reg) &
-				VA_MACRO_SWR_MIC_MUX_SEL_MASK;
+	adc_n = is_amic_enabled(component, hpf_work->decimator);
+	if (adc_n < BOLERO_ADC_MAX) {
 		/* analog mic clear TX hold */
 		bolero_clear_amic_tx_hold(component->dev, adc_n);
 		snd_soc_component_update_bits(component,
@@ -1187,14 +1125,13 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 		/* Enable TX CLK */
 		snd_soc_component_update_bits(component,
 				tx_vol_ctl_reg, 0x20, 0x20);
-		if (!is_amic_enabled(component, decimator)) {
-			snd_soc_component_update_bits(component,
+		snd_soc_component_update_bits(component,
 				hpf_gate_reg, 0x01, 0x00);
-			/*
-		 	 * Minimum 1 clk cycle delay is required as per HW spec
-		 	 */
-			usleep_range(1000, 1010);
-		}
+		/*
+		 * Minimum 1 clk cycle delay is required as per HW spec
+		 */
+		usleep_range(1000, 1010);
+
 		hpf_cut_off_freq = (snd_soc_component_read32(
 					component, dec_cfg_reg) &
 				   TX_HPF_CUT_OFF_FREQ_MASK) >> 5;
@@ -1205,34 +1142,32 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 			snd_soc_component_update_bits(component, dec_cfg_reg,
 					    TX_HPF_CUT_OFF_FREQ_MASK,
 					    CF_MIN_3DB_150HZ << 5);
-		if (is_amic_enabled(component, decimator)) {
+		if (is_amic_enabled(component, decimator) < BOLERO_ADC_MAX) {
 			hpf_delay = BOLERO_CDC_VA_TX_AMIC_HPF_DELAY_MS;
 			unmute_delay = BOLERO_CDC_VA_TX_AMIC_UNMUTE_DELAY_MS;
 			if (va_tx_unmute_delay < unmute_delay)
 				va_tx_unmute_delay = unmute_delay;
 		}
 		snd_soc_component_update_bits(component,
-				hpf_gate_reg, 0x03, 0x02);
-		if (!is_amic_enabled(component, decimator))
-			snd_soc_component_update_bits(component,
-				hpf_gate_reg, 0x03, 0x00);
+				hpf_gate_reg, 0x03, 0x03);
 		/*
 		 * Minimum 1 clk cycle delay is required as per HW spec
 		 */
 		usleep_range(1000, 1010);
 		snd_soc_component_update_bits(component,
-			hpf_gate_reg, 0x03, 0x01);
+			hpf_gate_reg, 0x02, 0x00);
+		snd_soc_component_update_bits(component,
+			hpf_gate_reg, 0x01, 0x01);
 		/*
 		 * 6ms delay is required as per HW spec
 		 */
 		usleep_range(6000, 6010);
 		/* schedule work queue to Remove Mute */
-		queue_delayed_work(system_freezable_wq,
-				   &va_priv->va_mute_dwork[decimator].dwork,
-				   msecs_to_jiffies(va_tx_unmute_delay));
+		schedule_delayed_work(&va_priv->va_mute_dwork[decimator].dwork,
+				      msecs_to_jiffies(va_tx_unmute_delay));
 		if (va_priv->va_hpf_work[decimator].hpf_cut_off_freq !=
 							CF_MIN_3DB_150HZ)
-			queue_delayed_work(system_freezable_wq,
+			schedule_delayed_work(
 					&va_priv->va_hpf_work[decimator].dwork,
 					msecs_to_jiffies(hpf_delay));
 		/* apply gain after decimator is enabled */
@@ -1251,14 +1186,9 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 						dec_cfg_reg,
 						TX_HPF_CUT_OFF_FREQ_MASK,
 						hpf_cut_off_freq << 5);
-				if (is_amic_enabled(component, decimator))
-					snd_soc_component_update_bits(component,
+				snd_soc_component_update_bits(component,
 						hpf_gate_reg,
-						0x03, 0x02);
-				else
-					snd_soc_component_update_bits(component,
-						hpf_gate_reg,
-						0x03, 0x03);
+						0x02, 0x02);
 				/*
 				 * Minimum 1 clk cycle delay is required
 				 * as per HW spec
@@ -1266,7 +1196,7 @@ static int va_macro_enable_dec(struct snd_soc_dapm_widget *w,
 				usleep_range(1000, 1010);
 				snd_soc_component_update_bits(component,
 						hpf_gate_reg,
-						0x03, 0x01);
+						0x02, 0x00);
 			}
 		}
 		cancel_delayed_work_sync(
@@ -2003,10 +1933,6 @@ static const struct snd_soc_dapm_widget va_macro_dapm_widgets_v3[] = {
 	SND_SOC_DAPM_SUPPLY_S("VA_SWR_PWR", -1, SND_SOC_NOPM, 0, 0,
 			      va_macro_swr_pwr_event,
 			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-
-	SND_SOC_DAPM_SUPPLY_S("VA_SWR_INTR", 0, SND_SOC_NOPM, 0, 0,
-			      va_macro_swr_intr_event,
-			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 };
 
 static const struct snd_soc_dapm_widget va_macro_dapm_widgets[] = {
@@ -2150,10 +2076,6 @@ static const struct snd_soc_dapm_widget va_macro_dapm_widgets[] = {
 
 	SND_SOC_DAPM_SUPPLY_S("VA_MCLK", -1, SND_SOC_NOPM, 0, 0,
 			      va_macro_mclk_event,
-			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-
-	SND_SOC_DAPM_SUPPLY_S("VA_SWR_INTR", 0, SND_SOC_NOPM, 0, 0,
-			      va_macro_swr_intr_event,
 			      SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 };
 
@@ -2301,15 +2223,6 @@ static const struct snd_soc_dapm_route va_audio_map_v3[] = {
 	{"VA SMIC MUX3", "SWR_MIC9", "VA SWR_MIC9"},
 	{"VA SMIC MUX3", "SWR_MIC10", "VA SWR_MIC10"},
 	{"VA SMIC MUX3", "SWR_MIC11", "VA SWR_MIC11"},
-
-	{"VA DMIC0", NULL, "VA_SWR_INTR"},
-	{"VA DMIC1", NULL, "VA_SWR_INTR"},
-	{"VA DMIC2", NULL, "VA_SWR_INTR"},
-	{"VA DMIC3", NULL, "VA_SWR_INTR"},
-	{"VA DMIC4", NULL, "VA_SWR_INTR"},
-	{"VA DMIC5", NULL, "VA_SWR_INTR"},
-	{"VA DMIC6", NULL, "VA_SWR_INTR"},
-	{"VA DMIC7", NULL, "VA_SWR_INTR"},
 };
 
 static const struct snd_soc_dapm_route va_audio_map_v2[] = {
@@ -2545,15 +2458,6 @@ static const struct snd_soc_dapm_route va_audio_map[] = {
 	{"VA SMIC MUX7", "SWR_DMIC5", "VA SWR_MIC5"},
 	{"VA SMIC MUX7", "SWR_DMIC6", "VA SWR_MIC6"},
 	{"VA SMIC MUX7", "SWR_DMIC7", "VA SWR_MIC7"},
-
-	{"VA DMIC0", NULL, "VA_SWR_INTR"},
-	{"VA DMIC1", NULL, "VA_SWR_INTR"},
-	{"VA DMIC2", NULL, "VA_SWR_INTR"},
-	{"VA DMIC3", NULL, "VA_SWR_INTR"},
-	{"VA DMIC4", NULL, "VA_SWR_INTR"},
-	{"VA DMIC5", NULL, "VA_SWR_INTR"},
-	{"VA DMIC6", NULL, "VA_SWR_INTR"},
-	{"VA DMIC7", NULL, "VA_SWR_INTR"},
 
 	{"VA SWR_ADC0", NULL, "VA_SWR_PWR"},
 	{"VA SWR_ADC1", NULL, "VA_SWR_PWR"},
@@ -3215,7 +3119,6 @@ static int va_macro_probe(struct platform_device *pdev)
 		va_priv->swr_plat_data.clk = va_macro_swrm_clock;
 		va_priv->swr_plat_data.core_vote = va_macro_core_vote;
 		va_priv->swr_plat_data.handle_irq = NULL;
-		va_priv->swr_plat_data.pinctrl_setup = NULL;
 		mutex_init(&va_priv->swr_clk_lock);
 	}
 	va_priv->is_used_va_swr_gpio = is_used_va_swr_gpio;
@@ -3280,10 +3183,6 @@ static const struct of_device_id va_macro_dt_match[] = {
 };
 
 static const struct dev_pm_ops bolero_dev_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(
-		pm_runtime_force_suspend,
-		pm_runtime_force_resume
-	)
 	SET_RUNTIME_PM_OPS(
 		bolero_runtime_suspend,
 		bolero_runtime_resume,

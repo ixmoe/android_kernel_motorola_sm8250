@@ -14,7 +14,7 @@ ifeq ($(KERNEL_BUILD), 1)
 endif
 
 ifdef CONFIG_CIRRUS_PLAYBACK
-	EXTRA_CFLAGS += -I$(TOP)/vendor/cirrus/audio/dlkm/include
+	EXTRA_CFLAGS += -Iinclude
 endif
 
 ifeq ($(KERNEL_BUILD), 0)
@@ -80,13 +80,6 @@ ifeq ($(KERNEL_BUILD), 0)
 		export
 		INCS    +=  -include $(AUDIO_ROOT)/config/gvmautoconf.h
 	endif
-	ifneq (,$(filter nairo%, $(TARGET_PRODUCT)))
-		INCS    +=  -include $(AUDIO_ROOT)/config/litonairo.h
-	endif
-        ifneq (,$(filter kiev%, $(TARGET_PRODUCT)))
-                INCS    +=  -include $(AUDIO_ROOT)/config/litokiev.h
-        endif
-
 endif
 
 
@@ -198,10 +191,6 @@ endif
 
 ifdef CONFIG_VOICE_MHI
 	Q6_OBJS += voice_mhi.o
-endif
-
-ifdef CONFIG_DIGITAL_CDC_RSC_MGR
-	Q6_OBJS += digital-cdc-rsc-mgr.o
 endif
 
 LINUX_INC +=	-Iinclude/linux

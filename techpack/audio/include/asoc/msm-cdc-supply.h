@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Copyright (c) 2016, 2018-2020 The Linux Foundation. All rights reserved.
+/* Copyright (c) 2016, 2018-2019 The Linux Foundation. All rights reserved.
  */
 
 #ifndef __CODEC_POWER_SUPPLY_H__
@@ -15,17 +15,12 @@ struct cdc_regulator {
 	int max_uV;
 	int optimum_uA;
 	bool ondemand;
-	bool lpm_supported;
 	struct regulator *regulator;
 };
 
 extern int msm_cdc_get_power_supplies(struct device *dev,
 				      struct cdc_regulator **cdc_vreg,
 				      int *total_num_supplies);
-extern bool msm_cdc_is_ondemand_supply(struct device *dev,
-				struct regulator_bulk_data *supplies,
-				struct cdc_regulator *cdc_vreg,
-				int num_supplies, char *supply_name);
 extern int msm_cdc_disable_ondemand_supply(struct device *dev,
 					struct regulator_bulk_data *supplies,
 					struct cdc_regulator *cdc_vreg,
@@ -46,11 +41,6 @@ extern int msm_cdc_enable_static_supplies(struct device *dev,
 					  struct regulator_bulk_data *supplies,
 					  struct cdc_regulator *cdc_vreg,
 					  int num_supplies);
-extern int msm_cdc_set_supplies_lpm_mode(struct device *dev,
-					 struct regulator_bulk_data *supplies,
-					 struct cdc_regulator *cdc_vreg,
-					 int num_supplies,
-					 bool flag);
 extern int msm_cdc_init_supplies(struct device *dev,
 				 struct regulator_bulk_data **supplies,
 				 struct cdc_regulator *cdc_vreg,
