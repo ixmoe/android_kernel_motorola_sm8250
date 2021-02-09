@@ -46,6 +46,7 @@ endif
 
 ifeq ($(CONFIG_MMI_DEVICE_DTBS),y)
 dtb-$(CONFIG_ARCH_LITO) += lito.dtb
+dtb-$(CONFIG_ARCH_KONA) += kona.dtb
 else
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 dtbo-$(CONFIG_ARCH_LITO) += lito-rumi-overlay.dtbo \
