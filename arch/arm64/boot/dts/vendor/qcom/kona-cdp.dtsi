@@ -89,18 +89,7 @@
 		label = "gpio-keys";
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&key_home_default
-			     &key_vol_up_default>;
-
-		home {
-			label = "home";
-			gpios = <&pm8150_gpios 1 GPIO_ACTIVE_LOW>;
-			linux,input-type = <1>;
-			linux,code = <KEY_HOME>;
-			gpio-key,wakeup;
-			debounce-interval = <15>;
-			linux,can-disable;
-		};
+		pinctrl-0 = <&key_vol_up_default>;
 
 		vol_up {
 			label = "volume_up";
@@ -180,7 +169,6 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&bt_en_sleep>;
 		qca,bt-reset-gpio = <&tlmm 21 0>; /* BT_EN */
-		qca,bt-sw-ctrl-gpio = <&tlmm 124 0>; /* SW_CTRL */
 		qca,bt-vdd-aon-supply = <&pm8150_s6>;
 		qca,bt-vdd-dig-supply = <&pm8009_s2>;
 		qca,bt-vdd-rfa1-supply = <&pm8150_s5>;
@@ -194,18 +182,6 @@
 		qca,bt-vdd-asd-voltage-level = <3024000 3304000>;
 
 		qca,bt-vdd-asd-current-level = <10000>;
-	};
-
-	extcon_usb1: extcon_usb1 {
-		compatible = "linux,extcon-usb-gpio";
-		vbus-gpio = <&pm8150_gpios 10 GPIO_ACTIVE_HIGH>;
-		id-gpio = <&tlmm 91 GPIO_ACTIVE_HIGH>;
-		vbus-out-gpio = <&pm8150_gpios 9 GPIO_ACTIVE_HIGH>;
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&usb2_vbus_det_default
-			     &usb2_id_det_default
-			     &usb2_vbus_boost_default>;
 	};
 };
 
@@ -812,10 +788,6 @@
 	cd-gpios = <&tlmm 77 GPIO_ACTIVE_LOW>;
 
 	status = "ok";
-};
-
-&usb1 {
-	extcon = <&extcon_usb1>;
 };
 
 &wil6210 {

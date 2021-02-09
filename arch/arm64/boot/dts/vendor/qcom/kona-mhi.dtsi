@@ -27,7 +27,8 @@
 
 		/* mhi bus specific settings */
 		mhi,max-channels = <111>;
-		mhi,timeout = <2000>;
+		/* Case 0449153 - Reduce tiemout from 2000 to 500 ms */
+		mhi,timeout = <500>;
 		mhi,buffer-len = <0x8000>;
 		mhi,sfr-support;
 		mhi,name = "esoc0";
@@ -548,16 +549,16 @@
 			mhi_event@0 {
 				reg = <0>;
 				mhi,num-elements = <32>;
-				mhi,intmod = <1>;
+				mhi,intmod = <0>;
 				mhi,msi = <1>;
-				mhi,priority = <1>;
+				mhi,priority = <0>;
 				mhi,brstmode = <2>;
 				mhi,data-type = <1>;
 			};
 
 			mhi_event@1 {
 				mhi,num-elements = <256>;
-				mhi,intmod = <1>;
+				mhi,intmod = <0>;
 				mhi,msi = <2>;
 				mhi,priority = <1>;
 				mhi,brstmode = <2>;
@@ -565,15 +566,15 @@
 
 			mhi_event@2 {
 				mhi,num-elements = <256>;
-				mhi,intmod = <1>;
+				mhi,intmod = <0>;
 				mhi,msi = <3>;
-				mhi,priority = <1>;
+				mhi,priority = <0>;
 				mhi,brstmode = <2>;
 			};
 
 			mhi_event@3 {
 				mhi,num-elements = <256>;
-				mhi,intmod = <1>;
+				mhi,intmod = <0>;
 				mhi,msi = <4>;
 				mhi,priority = <1>;
 				mhi,brstmode = <2>;
@@ -600,8 +601,8 @@
 			};
 
 			mhi_event@6 {
-				mhi,num-elements = <32>;
-				mhi,intmod = <1>;
+				mhi,num-elements = <64>;
+				mhi,intmod = <0>;
 				mhi,msi = <0>;
 				mhi,priority = <2>;
 				mhi,brstmode = <2>;
@@ -627,7 +628,6 @@
 				mhi,brstmode = <3>;
 				mhi,hw-ev;
 				mhi,client-manage;
-				mhi,force-uncached;
 			};
 
 			mhi_event@9 {

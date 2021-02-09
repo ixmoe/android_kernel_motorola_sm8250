@@ -15,8 +15,7 @@
 		interrupt-names = "error_irq", "wdg_bite_irq", "ipc_irq",
 					"general_irq";
 		iommus = <&apps_smmu 0x1081 0x400>, <&apps_smmu 0x1082 0x400>,
-			<&apps_smmu 0x10A1 0x400>, <&apps_smmu 0x10A2 0x400>,
-			<&apps_smmu 0x10C1 0x400>, <&apps_smmu 0x10C2 0x400>;
+			<&apps_smmu 0x10A1 0x400>, <&apps_smmu 0x10A2 0x400>;
 
 		clocks = <&clock_npucc NPU_CC_XO_CLK>,
 				<&clock_npucc NPU_CC_CORE_CLK>,
@@ -96,7 +95,7 @@
 			<&npudsp_npu_ddr_bw>;
 		qcom,npubw-dev-names = "llcc_bw", "llcc_ddr_bw", "dsp_ddr_bw";
 		qcom,src-dst-ports = <MSM_BUS_MASTER_NPU MSM_BUS_SLAVE_EBI_CH0>,
-				<MSM_BUS_MASTER_NPU MSM_BUS_SLAVE_CLK_CTL>;
+		<MSM_BUS_MASTER_NPU MSM_BUS_SLAVE_CLK_CTL>;
 		qcom,npu-pwrlevels {
 			#address-cells = <1>;
 			#size-cells = <0>;

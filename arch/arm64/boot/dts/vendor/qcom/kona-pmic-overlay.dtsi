@@ -34,16 +34,6 @@
 };
 
 &pm8150_gpios {
-	key_home {
-		key_home_default: key_home_default {
-			pins = "gpio1";
-			function = "normal";
-			input-enable;
-			bias-pull-up;
-			power-source = <0>;
-		};
-	};
-
 	key_vol_up {
 		key_vol_up_default: key_vol_up_default {
 			pins = "gpio6";
@@ -51,16 +41,6 @@
 			input-enable;
 			bias-pull-up;
 			power-source = <1>;
-		};
-	};
-
-	key_confirm {
-		key_confirm_default: key_confirm_default {
-			pins = "gpio7";
-			function = "normal";
-			input-enable;
-			bias-pull-up;
-			power-source = <0>;
 		};
 	};
 
@@ -145,19 +125,6 @@
 	vconn-supply = <&smb5_vconn>;
 };
 
-&pm8150b_gpios {
-	haptics_boost {
-		haptics_boost_default: haptics_boost_default {
-			pins = "gpio5";
-			function = "normal";
-			output-enable;
-			input-disable;
-			bias-disable;
-			qcom,drive-strength = <3>; /* high */
-			power-source = <1>; /* 1.8 V */
-		};
-	};
-};
 
 &soc {
 	vreg_tof: regulator-dbb1 {
@@ -165,7 +132,7 @@
 		regulator-name = "vdd_tof";
 		regulator-min-microvolt = <3600000>;
 		regulator-max-microvolt = <3600000>;
-		gpio = <&pm8009_gpios 1 GPIO_ACTIVE_HIGH>;
+//		gpio = <&pm8009_gpios 1 GPIO_ACTIVE_HIGH>;
 		startup-delay-us = <1000>;
 		enable-active-high;
 	};
@@ -173,9 +140,9 @@
 	vreg_hap_boost: regulator-haptics-boost {
 		compatible = "regulator-fixed";
 		regulator-name = "vdd_hap_boost";
-		gpio = <&pm8150b_gpios 5 GPIO_ACTIVE_HIGH>;
+		/*gpio = <&pm8150b_gpios 5 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&haptics_boost_default>;
+		pinctrl-0 = <&haptics_boost_default>;*/
 		startup-delay-us = <1000>;
 		enable-active-high;
 		status = "disabled";

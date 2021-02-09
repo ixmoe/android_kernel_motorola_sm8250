@@ -91,10 +91,17 @@
 	qcom,dsi-ctrl-num = <0>;
 	qcom,dsi-phy-num = <0>;
 	//qcom,dsi-select-clocks = "src_byte_clk0", "src_pixel_clk0";
-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_samsung>;
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	qcom,iris-supply-entries = <&dsi_iris_pwr_supply>;
 	qcom,mdss-dsi-bl-pmic-control-type = "bl_ctrl_dcs";
-	qcom,platform-te-gpio = <&tlmm 10 0>;
-	qcom,platform-reset-gpio = <&pm8150l_gpios 3 0>;
+	qcom,platform-te-gpio = <&tlmm 66 0>;
+	qcom,platform-reset-gpio = <&tlmm 75 0>;
+	/* #if defined(CONFIG_PXLW_IRIS5) */
+	qcom,platform-iris-reset-gpio = <&tlmm 174 0>;
+	qcom,platform-analog-bypass-gpio = <&tlmm 173 0>;
+	qcom,platform-analog-bypass-status-gpio = <&tlmm 112 0>;
+	//qcom,platform-iris-vdd-gpio = <&tlmm 175 0>;
+	/* #endif */
 };
 &soc {
 	dsi_samsung_sofef00_m_video {
@@ -103,9 +110,7 @@
 };
 &dsi_samsung_sofef00_m_video {
 	qcom,ulps-enabled;
-	qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0",
-				"src_byte_clk0", "src_pixel_clk0",
-				"shadow_byte_clk0", "shadow_pixel_clk0";
+	qcom,dsi-select-clocks = "mux_byte_clk0", "mux_pixel_clk0","pw_bb_clk2";
 	qcom,mdss-dsi-display-timings {
 		timing@0 {
 			qcom,mdss-dsi-panel-phy-timings = [00 1c 08 07 23 22 07

@@ -11,8 +11,8 @@
 	qcom,pm7250b@2 {
 		compatible = "qcom,spmi-pmic";
 		reg = <0x2 SPMI_USID>;
-		#address-cells = <2>;
-		#size-cells = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
 
 		pm7250b_revid: qcom,revid@100 {
 			compatible = "qcom,qpnp-revid";
@@ -177,10 +177,6 @@
 						  "temp-change",
 						  "temp-change-smb";
 			};
-
-			qcom,chg-sdam@b000 {
-				reg = <0xb000 0x100>;
-			};
 		};
 
 		pm7250b_pdphy: qcom,usb-pdphy@1700 {
@@ -228,8 +224,6 @@
 			qcom,vbatt-empty-mv = <3000>;
 			qcom,vbatt-empty-cold-mv = <3000>;
 			qcom,s3-entry-fifo-length = <2>;
-			qcom,s3-entry-ibat-ua = <25000>;
-			qcom,s3-exit-ibat-ua = <35000>;
 
 			qcom,pmic-revid = <&pm7250b_revid>;
 
@@ -258,7 +252,7 @@
 		pm7250b_clkdiv: clock-controller@5b00 {
 			compatible = "qcom,spmi-clkdiv";
 			reg = <0x5b00 0x100>;
-			#clock-cells = <1>;
+			#clodk-cells = <1>;
 			qcom,num-clkdivs = <1>;
 			clock-output-names = "pm7250b_div_clk1";
 			clocks = <&rpmhcc RPMH_CXO_CLK>;
@@ -445,19 +439,19 @@
 		};
 	};
 
-	//qcom,pm7250b@3 {
-	//	compatible = "qcom,spmi-pmic";
-	//	reg = <0x3 SPMI_USID>;
-	//	#address-cells = <1>;
-	//	#size-cells = <1>;
-	//
-	//	pm7250b_vib: qcom,vibrator@5300 {
-	//		compatible = "qcom,qpnp-vibrator-ldo";
-	//		reg = <0x5300 0x100>;
-	//		qcom,vib-ldo-volt-uv = <3000000>;
-	//		qcom,disable-overdrive;
-	//	};
-	//};
+	qcom,pm7250b@3 {
+		compatible = "qcom,spmi-pmic";
+		reg = <0x3 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		pm7250b_vib: qcom,vibrator@5300 {
+			compatible = "qcom,qpnp-vibrator-ldo";
+			reg = <0x5300 0x100>;
+			qcom,vib-ldo-volt-uv = <3000000>;
+			qcom,disable-overdrive;
+		};
+	};
 };
 
 &thermal_zones {
@@ -621,7 +615,7 @@
 	};
 
 	soc {
-		polling-delay-passive = <5000>;
+		polling-delay-passive = <100>;
 		polling-delay = <0>;
 		thermal-governor = "low_limits_cap";
 		thermal-sensors = <&bcl_soc>;
@@ -630,15 +624,10 @@
 
 		trips {
 			soc_trip:soc-trip {
-				temperature = <5>;
+				temperature = <10>;
 				hysteresis = <0>;
 				type = "passive";
 			};
-			soc_trip2:soc-trip2 {
-                                temperature = <15>;
-                                hysteresis = <0>;
-                                type = "passive";
-                        };
 		};
 	};
 };
