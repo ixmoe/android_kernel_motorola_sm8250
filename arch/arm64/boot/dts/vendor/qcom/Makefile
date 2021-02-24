@@ -71,6 +71,7 @@ dtb-$(CONFIG_ARCH_LITO) += lito-rumi.dtb \
                 lito-v2-atp.dtb \
                 lito-v2-qrd.dtb
 endif
+endif
 
 ifeq ($(CONFIG_BUILD_ARM64_DT_OVERLAY),y)
 dtbo-$(CONFIG_ARCH_LAGOON) += lagoon-rumi-overlay.dtbo
